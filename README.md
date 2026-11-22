@@ -48,6 +48,7 @@ test clips are decoded when final evaluation runs.
 ## Smoke test and train
 
 ```powershell
+$env:OPENBLAS_NUM_THREADS = "1"
 & $projectPython -m speech_gan.train baseline --smoke --batch-size 4 --device cuda --run-dir runs/smoke/baseline
 & $projectPython -m speech_gan.train spectral --smoke --batch-size 4 --device cuda --run-dir runs/smoke/spectral
 
@@ -67,14 +68,18 @@ Evaluation writes a summary and per-utterance measurements.
 
 ## Run the offline demo
 
+The trained generator checkpoints in `artifacts/` let you run the demo
+without downloading VoiceBank–DEMAND.
+
 ```powershell
-& $projectPython -m speech_gan.demo --baseline runs/baseline/best.pt --spectral runs/spectral/best.pt --device cpu
+& $projectPython -m speech_gan.demo --device cpu
 ```
 
 Open the localhost URL printed by Gradio. Upload or record a noisy voice note
 up to 60 seconds long. Add the matching clean recording if you have it, then
 select **Denoise and compare**. The four audio players keep a common gain and
 the plots share the same time and frequency limits and dB scale.
+Use `--baseline` and `--spectral` to select checkpoints from a new run.
 
 ## Data credit
 

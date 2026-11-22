@@ -129,4 +129,6 @@ The local Gradio interface accepts a recording or uploaded voice note up to
 60 seconds, converts it to mono at 16 kHz, and runs both generators. The noisy
 input, two estimates, and optional clean reference can be played individually.
 Spectrograms use 512-sample Hann windows, 128-sample hops, and a shared −80 to
-0 dB magnitude scale. Setup, training, and demo commands are in [README.md](README.md).
+0 dB magnitude scale. Upload tests with the published checkpoints returned
+the expected audio players and spectrograms with and without a clean reference.
+Setup, training, and demo commands are in [README.md](README.md).
