@@ -1,0 +1,9 @@
+/.venv/
+/data/
+/runs/
+/examples/
+/GEnAI_CAC.docx
+/Speech_GAN_Codex_Handoff.md
+__pycache__/
+*.py[cod]
+/.pytest_cache/
