@@ -3,3 +3,13 @@ maxUploadSize = 2048
 
 [browser]
 gatherUsageStats = false
+
+[theme]
+base = "light"
+primaryColor = "#c2410c"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#f4f4f5"
+textColor = "#18181b"
+borderColor = "#e4e4e7"
+baseRadius = "8px"
+showWidgetBorder = true

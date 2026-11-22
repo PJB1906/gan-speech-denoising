@@ -1,8 +1,6 @@
 """Hosted frontend for the speech enhancement and transcription pipeline."""
 
-import hmac
 import io
-import os
 from pathlib import Path
 import shutil
 import sys
@@ -14,7 +12,6 @@ from matplotlib.figure import Figure
 import numpy as np
 import soundfile as sf
 import streamlit as st
-from streamlit.errors import StreamlitSecretNotFoundError
 import torch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -27,38 +24,15 @@ from speech_gan.train import load_generator, resolve_device
 from speech_gan.transcription import MODEL_FILES, MODEL_PATH, download_model, load_transcriber, transcribe_audio
 
 SUPPORTED_AUDIO = ["wav", "flac", "mp3", "m4a", "aac", "ogg", "opus", "webm", "aiff"]
-
-
-def require_password():
-    configured = os.environ.get("VOICE_NOTE_PASSWORD")
-    if configured is None:
-        try:
-            configured = st.secrets.get("VOICE_NOTE_PASSWORD")
-        except StreamlitSecretNotFoundError:
-            configured = None
-    if not isinstance(configured, str) or not configured:
-        st.info("Set VOICE_NOTE_PASSWORD in the app's Secrets to enable recording uploads.")
-        st.stop()
-    if st.session_state.get("signed_in"):
-        return
-    with st.form("sign_in"):
-        entered = st.text_input("Access password", type="password")
-        submitted = st.form_submit_button("Sign in")
-    if submitted:
-        if hmac.compare_digest(entered.encode("utf-8"), configured.encode("utf-8")):
-            st.session_state.signed_in = True
-            st.rerun()
-        st.error("Incorrect password.")
-    st.stop()
+MODEL_VARIANTS = {"Baseline GAN": "baseline", "MR-STFT GAN": "spectral", "Conformer": "conformer"}
 
 
 @st.cache_resource
 def shared_models():
     device = resolve_device("cpu")
     torch.set_num_threads(2)
-    variants = {"Baseline GAN": "baseline", "MR-STFT GAN": "spectral", "Conformer": "conformer"}
     models = {}
-    for label, variant in variants.items():
+    for label, variant in MODEL_VARIANTS.items():
         checkpoint_path = ROOT / "artifacts" / f"{variant}.pt"
         model, checkpoint = load_generator(checkpoint_path, device)
         if checkpoint["variant"] != variant:
@@ -168,72 +142,101 @@ def plot_waveforms(clips):
     return figure
 
 
-def show_result(result):
-    paths = result["paths"]
+def show_audio_cards(paths, offset):
+    clips = []
+    for group in (("Noisy", "Clean reference"), tuple(MODEL_VARIANTS)):
+        columns = st.columns(len(group), gap="small", vertical_alignment="top")
+        for column, label in zip(columns, group):
+            path = paths.get(label)
+            preview = audio_preview(path, offset) if path is not None else None
+            clips.append((label, preview))
+            with column.container(border=True, key=f"audio-{len(clips)}"):
+                st.markdown(f"**{label}**")
+                if preview is not None:
+                    wav = io.BytesIO()
+                    sf.write(wav, preview, SAMPLE_RATE, format="WAV", subtype="PCM_16")
+                    st.audio(wav.getvalue(), format="audio/wav")
+                elif not paths:
+                    st.caption("No audio yet")
+                elif path is None:
+                    st.caption("No reference uploaded")
+                else:
+                    st.caption("Recording ends before this point")
+    return clips
+
+
+def show_full_recordings(paths):
+    options = list(paths)
+    with st.container(border=True):
+        st.markdown("**Full recordings**")
+        selected = st.selectbox("Recording", options, index=options.index("Conformer"))
+        path = paths[selected]
+        player, download = st.columns(2, gap="small")
+        load_audio = player.button("Load full audio player", width="stretch")
+        download.download_button(
+            "Download full audio", data=path.read_bytes, file_name=path.name, mime="audio/flac",
+            on_click="ignore", width="stretch",
+        )
+        if load_audio:
+            st.audio(str(path), format="audio/flac")
+
+
+def show_comparison(result):
+    paths = result["paths"] if result else {}
     offset = 0
-    if result["duration"] > PREVIEW_SECONDS:
+    if result and result["duration"] > PREVIEW_SECONDS:
         offset = st.slider(
             "Preview start (seconds)", 0, max(1, int(result["duration"]) - 1),
             step=1, key="preview_start",
         )
         st.caption(f"Up to {PREVIEW_SECONDS} seconds from {timecode(offset)}.")
 
-    clips = []
-    for group in (("Noisy", "Clean reference"), ("Baseline GAN", "MR-STFT GAN", "Conformer")):
-        columns = st.columns(len(group))
-        for column, label in zip(columns, group):
-            path = paths.get(label)
-            preview = audio_preview(path, offset) if path is not None else None
-            clips.append((label, preview))
-            with column:
-                st.markdown(f"**{label}**")
-                if preview is not None:
-                    wav = io.BytesIO()
-                    sf.write(wav, preview, SAMPLE_RATE, format="WAV", subtype="PCM_16")
-                    st.audio(wav.getvalue(), format="audio/wav")
-                elif path is None:
-                    st.caption("No reference uploaded.")
-                else:
-                    st.caption("The recording has ended at this position.")
-    spectrum, waveform = st.tabs(("Spectrograms", "Waveforms"))
-    with spectrum:
-        st.pyplot(plot_spectrograms(clips), width="stretch")
-    with waveform:
-        st.pyplot(plot_waveforms(clips), width="stretch")
-    options = list(paths)
-    selected = st.selectbox("Full recording", options, index=options.index("Conformer"))
-    path = paths[selected]
-    if st.button("Load full audio player"):
-        st.audio(str(path), format="audio/flac")
-    st.download_button("Download full audio", data=path.read_bytes, file_name=path.name, mime="audio/flac",
-                       on_click="ignore")
-    st.subheader("Timestamped transcript · Conformer")
-    if result["error"]:
-        st.warning(f"Audio processing finished. Transcription could not be completed. {result['error']}")
-    elif result["transcript"]:
-        st.text_area("Transcript", result["transcript"], height=260, disabled=True)
-        st.download_button(
-            "Download transcript", result["transcript"] + "\n", file_name="transcript.txt",
-            mime="text/plain", on_click="ignore",
+    clips = show_audio_cards(paths, offset)
+    if result:
+        show_full_recordings(paths)
+
+    with st.container(border=True):
+        transcript = result["transcript"] if result else ""
+        st.text_area(
+            "Timestamped transcript · Conformer", transcript, height=240, disabled=True,
+            placeholder="Run denoising to see the transcript.",
         )
-    else:
-        st.info("No speech detected.")
+        if result and result["error"]:
+            st.warning(f"Transcription could not be completed. {result['error']}")
+        elif transcript:
+            st.download_button(
+                "Download transcript", transcript + "\n", file_name="transcript.txt",
+                mime="text/plain", on_click="ignore",
+            )
+        elif result:
+            st.caption("No speech detected.")
+
+    with st.container(border=True):
+        if result:
+            spectrum, waveform = st.tabs(("Spectrograms", "Waveforms"))
+            with spectrum:
+                st.pyplot(plot_spectrograms(clips), width="stretch")
+            with waveform:
+                st.pyplot(plot_waveforms(clips), width="stretch")
+        else:
+            st.markdown("**Spectrograms**")
+            st.caption("Enhance a recording to compare the models.")
 
 
 st.set_page_config(page_title="Voice Note Denoiser", layout="wide")
+st.html(Path(__file__).with_name("style.css"))
 st.title("Voice Note Denoiser")
-require_password()
 
 generation = st.session_state.get("upload_generation", 0)
-with st.form("recording_form"):
-    left, right = st.columns(2)
-    with left:
+with st.form("recording_form", border=False):
+    left, right = st.columns(2, gap="small")
+    with left.container(border=True):
         noisy = st.file_uploader("Audio recording", type=SUPPORTED_AUDIO, key=f"noisy_{generation}")
-    with right:
+    with right.container(border=True):
         clean = st.file_uploader("Clean reference (optional)", type=SUPPORTED_AUDIO, key=f"clean_{generation}")
     with st.expander("Record with microphone"):
         recording = st.audio_input("Microphone", key=f"recording_{generation}")
-    submitted = st.form_submit_button("Denoise and transcribe", type="primary")
+    submitted = st.form_submit_button("Denoise and transcribe", type="primary", width="stretch")
 if submitted:
     stage_recording(noisy, recording, clean)
 
@@ -251,5 +254,4 @@ if pending is not None:
         st.session_state.pop("preview_start", None)
         if previous is not None:
             previous.cleanup()
-if "result" in st.session_state:
-    show_result(st.session_state.result)
+show_comparison(st.session_state.get("result"))

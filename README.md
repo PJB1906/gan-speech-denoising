@@ -118,9 +118,7 @@ fetches the pinned multilingual Whisper Base weights. Use
 ## Host on Streamlit Community Cloud
 
 Deploy the `main` branch with `streamlit_app/app.py` as the entry point
-and Python 3.12. In Advanced settings, set the app's Secrets to
-`VOICE_NOTE_PASSWORD = "your-access-password"`. Share this password
-separately from the app URL.
+and Python 3.12. [Open the hosted Voice Note Denoiser](https://gan-speech-denoising.streamlit.app/).
 
 The hosted app compares all three denoisers with audio previews, waveforms,
 and spectrograms from any part of the recording. It also provides full-length
