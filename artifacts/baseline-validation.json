@@ -1,0 +1,45 @@
+{
+  "split": "validation",
+  "speakers": [
+    "p226",
+    "p230",
+    "p274",
+    "p278"
+  ],
+  "dataset_revision": "4497db342d7312978c45690591fda86117831940",
+  "device": "NVIDIA GeForce RTX 4050 Laptop GPU",
+  "torch_version": "2.11.0+cu128",
+  "checkpoint_epochs": {
+    "baseline": 4
+  },
+  "methods": {
+    "noisy": {
+      "clips": 1608,
+      "stoi": 0.8568469826589097,
+      "stoi_count": 1608,
+      "si_sdr_db": 6.105069283390674,
+      "si_sdr_db_count": 1608
+    },
+    "baseline": {
+      "clips": 1608,
+      "stoi": 0.8558135390027803,
+      "stoi_count": 1608,
+      "si_sdr_db": 9.92713581288199,
+      "si_sdr_db_count": 1608,
+      "median_inference_ms": 7.8497499926015735,
+      "real_time_factor": 0.0032194490396560906
+    }
+  },
+  "paired_deltas": {
+    "baseline_minus_noisy": {
+      "stoi": {
+        "count": 1608,
+        "mean": -0.0010334436561295604
+      },
+      "si_sdr_db": {
+        "count": 1608,
+        "mean": 3.8220665294913174
+      }
+    }
+  }
+}

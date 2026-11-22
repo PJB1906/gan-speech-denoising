@@ -75,11 +75,15 @@ The real-time factor divides total inference seconds by total audio seconds.
 [STOI implementation and references](https://github.com/mpariente/pystoi),
 [SI-SDR](https://arxiv.org/abs/1811.02508).
 
-### Progress
+### Baseline validation
 
-Four-batch CPU smoke tests completed for both loss variants. These runs
-exercised the training and checkpoint paths. The matched full-model experiment
-and official test results are pending.
+Both variants passed four-batch smoke tests on CPU and on the RTX 4050.
+On all 1,608 validation utterances, the selected baseline (epoch 4) scored
+0.85581 STOI and 9.93 dB SI-SDR. The noisy input scored 0.85685 STOI and
+6.11 dB SI-SDR. The baseline gained 3.82 dB in SI-SDR while losing 0.00103
+in STOI. The spectral-loss run uses the same training budget to test whether
+it can keep the distortion gain and improve intelligibility.
+[Baseline validation measurements](artifacts/baseline-validation.json).
 
 ## Phase 4 · Offline voice-note demo
 
