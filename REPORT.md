@@ -123,6 +123,26 @@ The test covers two speakers and this experiment uses one initialization seed.
 STOI measures an intelligibility proxy on simulated mixtures. Word recognition
 on real voice notes remains unmeasured.
 
+## Follow-up experiment · Transformer and Conformer
+
+The follow-up tests whether local temporal convolution improves a Transformer
+denoiser. Both models convert the noisy waveform to a 512-point Hann STFT
+with a 128-sample hop. A shared convolutional encoder and decoder predict
+a bounded gain and phase correction for each time-frequency bin. Between
+them, two attention blocks process up to 256 frames at a time. The Conformer
+adds a gated depthwise convolution of nine frames after each attention
+layer. That gives each block an explicit local path for short speech
+transitions. [Conformer architecture](https://arxiv.org/abs/2005.08100).
+
+The two models start with identical weights in shared layers. They use
+the same one-second crops, speaker split, eight epochs, batch size of 16,
+and AdamW learning rate of 0.0006. Both optimize weighted L1 errors on
+power-compressed magnitude, compressed complex spectra and the waveform.
+Checkpoints are selected on the same 256 validation utterances by mean STOI.
+The official set was previously scored for the GAN study, so the comparison
+with the new models is a follow-up on a known benchmark. Checkpoint selection
+for the attention models uses only validation scores.
+
 ## Phase 4 · Offline voice-note demo
 
 The local Gradio interface accepts a recording or uploaded voice note up to

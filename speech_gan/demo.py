@@ -1,4 +1,4 @@
-"""Offline browser demo for comparing the two speech enhancement generators."""
+"""Offline browser demo for comparing speech enhancement models."""
 
 import argparse
 import math
@@ -37,8 +37,9 @@ def load_note(path):
 
 
 def plot_spectrograms(clips):
-    figure = Figure(figsize=(10, 5.6), layout="constrained")
-    axes = figure.subplots(2, 2, sharex=True, sharey=True).ravel()
+    columns = 2 if len(clips) <= 4 else 3
+    figure = Figure(figsize=(5 * columns, 5.6), layout="constrained")
+    axes = figure.subplots(2, columns, sharex=True, sharey=True).ravel()
     duration = max(len(audio) for _, audio in clips if audio is not None) / SAMPLE_RATE
     for axis, (label, audio) in zip(axes, clips):
         axis.set_title(label, loc="left")
@@ -54,17 +55,28 @@ def plot_spectrograms(clips):
         image = axis.pcolormesh(time, frequency, db, shading="auto", vmin=-80, vmax=0, cmap="magma")
     figure.supxlabel("Time (s)")
     figure.supylabel("Frequency (Hz)")
-    figure.colorbar(image, ax=axes.tolist(), label="STFT magnitude (dB)")
+    for axis in axes[len(clips):]:
+        axis.set_axis_off()
+    if len(clips) % columns:
+        for axis in axes[len(clips) - columns:columns]:
+            axis.tick_params(labelbottom=True)
+    figure.colorbar(image, ax=axes[:len(clips)].tolist(), label="STFT magnitude (dB)")
     return figure
 
 
-def create_demo(baseline, spectral, device, temp_root):
+def create_demo(baseline, spectral, device, temp_root, conformer=None):
     models = {}
-    for variant, path in (("baseline", baseline), ("spectral", spectral)):
+    variants = (
+        ("baseline", "Baseline GAN", baseline), ("spectral", "MR-STFT GAN", spectral),
+        ("conformer", "Conformer", conformer),
+    )
+    for variant, label, path in variants:
+        if path is None:
+            continue
         model, checkpoint = load_generator(path, device)
         if checkpoint["variant"] != variant:
             raise ValueError(f"{path}: expected a {variant} checkpoint")
-        models[variant] = model
+        models[label] = model
 
     def compare(noisy_path, clean_path):
         if not noisy_path:
@@ -74,10 +86,11 @@ def create_demo(baseline, spectral, device, temp_root):
             clean = load_note(clean_path) if clean_path else None
         except (ValueError, RuntimeError) as error:
             raise gr.Error(str(error)) from error
-        baseline_audio, _ = enhance(models["baseline"], noisy, device)
-        spectral_audio, _ = enhance(models["spectral"], noisy, device)
-        clips = [("Noisy", noisy), ("Baseline GAN", baseline_audio),
-                 ("MR-STFT GAN", spectral_audio), ("Clean reference", clean)]
+        clips = [("Noisy", noisy)]
+        for label, model in models.items():
+            enhanced, _ = enhance(model, noisy, device)
+            clips.append((label, enhanced))
+        clips.append(("Clean reference", clean))
         destination = Path(tempfile.mkdtemp(dir=temp_root))
         audio_paths = []
         for index, (_, audio) in enumerate(clips):
@@ -95,11 +108,11 @@ def create_demo(baseline, spectral, device, temp_root):
         button = gr.Button("Denoise and compare", variant="primary")
         with gr.Row():
             noisy_result = gr.Audio(label="Noisy", interactive=False)
-            baseline_result = gr.Audio(label="Baseline GAN", interactive=False)
-            spectral_result = gr.Audio(label="MR-STFT GAN", interactive=False)
             clean_result = gr.Audio(label="Clean reference", interactive=False)
+        with gr.Row():
+            denoised_results = [gr.Audio(label=label, interactive=False) for label in models]
         plot = gr.Plot(label="Spectrograms")
-        button.click(compare, [noisy, clean], [noisy_result, baseline_result, spectral_result, clean_result, plot])
+        button.click(compare, [noisy, clean], [noisy_result, *denoised_results, clean_result, plot])
     return app
 
 
@@ -107,12 +120,15 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--baseline", type=Path, default=Path("artifacts/baseline.pt"))
     parser.add_argument("--spectral", type=Path, default=Path("artifacts/spectral.pt"))
+    bundled_conformer = Path("artifacts/conformer.pt")
+    parser.add_argument("--conformer", type=Path, default=bundled_conformer if bundled_conformer.is_file() else None)
+    parser.add_argument("--port", type=int)
     parser.add_argument("--device", choices=("auto", "cuda", "cpu"), default="auto")
     args = parser.parse_args()
     device = resolve_device(args.device)
     with tempfile.TemporaryDirectory(prefix="speech-gan-") as temp_root:
-        app = create_demo(args.baseline, args.spectral, device, temp_root)
-        app.launch(server_name="127.0.0.1", share=False, allowed_paths=[temp_root])
+        app = create_demo(args.baseline, args.spectral, device, temp_root, args.conformer)
+        app.launch(server_name="127.0.0.1", server_port=args.port, share=False, allowed_paths=[temp_root])
 
 
 if __name__ == "__main__":

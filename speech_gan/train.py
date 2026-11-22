@@ -1,4 +1,4 @@
-"""Train the baseline or spectral-loss GAN using identical crops and schedules."""
+"""Train a speech enhancer on reproducible speaker-held-out splits."""
 
 import argparse
 import json
@@ -13,6 +13,7 @@ from torch.nn import functional as F
 from torch.utils.data import DataLoader, Dataset
 
 from . import SAMPLE_RATE
+from .attention import ATTENTION_MODELS, SpectralEnhancer, WAVEFORM_WEIGHT, enhancement_loss
 from .data import Pairs, REVISION, SPLIT_SEED
 from .metrics import score_pairs, summarize
 from .model import Discriminator, Generator, MultiResolutionSTFT
@@ -21,6 +22,8 @@ TRAIN_SEED = 1234
 L1_WEIGHT = 50.0
 SPECTRAL_WEIGHT = 1.0
 LEARNING_RATE = 0.0002
+ATTENTION_LEARNING_RATE = 0.0006
+GAN_MODELS = ("baseline", "spectral")
 
 
 class Crops(Dataset):
@@ -58,20 +61,32 @@ def atomic_save(state, path):
     temporary.replace(path)
 
 
+def make_generator(variant):
+    if variant in ATTENTION_MODELS:
+        return SpectralEnhancer(use_convolution=variant == "conformer")
+    if variant in GAN_MODELS:
+        return Generator()
+    raise ValueError(f"Unknown model variant: {variant}")
+
+
 def load_generator(path, device):
     checkpoint = torch.load(path, map_location="cpu", weights_only=True)
-    model = Generator().to(device)
+    model = make_generator(checkpoint["variant"]).to(device)
     model.load_state_dict(checkpoint["generator"])
     return model.eval(), checkpoint
 
 
-def train_epoch(generator, discriminator, optimizer_g, optimizer_d, spectral, crops, config, device):
-    generator.train()
-    loader = DataLoader(
+def batches(crops, config, device):
+    return DataLoader(
         crops, batch_size=config["batch_size"], shuffle=True,
         generator=torch.Generator().manual_seed(TRAIN_SEED + crops.epoch),
         pin_memory=device.type == "cuda",
     )
+
+
+def train_epoch(generator, discriminator, optimizer_g, optimizer_d, spectral, crops, config, device):
+    generator.train()
+    loader = batches(crops, config, device)
     totals = torch.zeros(4, device=device)
     if device.type == "cuda":
         torch.cuda.synchronize(device)
@@ -116,6 +131,35 @@ def train_epoch(generator, discriminator, optimizer_g, optimizer_d, spectral, cr
     }
 
 
+def train_attention_epoch(generator, optimizer, crops, config, device):
+    generator.train()
+    loader = batches(crops, config, device)
+    total = torch.zeros((), device=device)
+    if device.type == "cuda":
+        torch.cuda.synchronize(device)
+    start = time.perf_counter()
+    steps = 0
+    for noisy, clean in loader:
+        noisy = noisy.to(device, non_blocking=True)
+        clean = clean.to(device, non_blocking=True)
+        optimizer.zero_grad(set_to_none=True)
+        with torch.autocast(device.type, dtype=torch.bfloat16, enabled=config["bf16"]):
+            loss = enhancement_loss(generator, noisy, clean)
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(generator.parameters(), 5.0)
+        optimizer.step()
+        total += loss.detach()
+        steps += 1
+        if steps % 100 == 0:
+            print(f"  step {steps}/{len(loader)}, {time.perf_counter() - start:.1f} s", flush=True)
+        if config["smoke"] and steps == 4:
+            break
+    average = (total / steps).item()
+    if not math.isfinite(average):
+        raise FloatingPointError(f"Non-finite enhancement loss: {average}")
+    return {"enhancement_loss": average, "steps": steps, "train_seconds": time.perf_counter() - start}
+
+
 def run(args):
     device = resolve_device(args.device)
     torch.manual_seed(TRAIN_SEED)
@@ -125,19 +169,32 @@ def run(args):
     val = Pairs(args.data_dir, "validation")
     max_val = 8 if args.smoke else args.validation_limit
     indices = validation_indices(val, max_val)
+    attention_model = args.variant in ATTENTION_MODELS
     config = {
         "dataset_revision": REVISION, "holdout": val.validation_speakers, "split_seed": SPLIT_SEED,
         "seed": TRAIN_SEED, "epochs": 1 if args.smoke else args.epochs,
         "batch_size": args.batch_size, "crop_samples": SAMPLE_RATE,
-        "validation_limit": max_val, "l1_weight": L1_WEIGHT, "learning_rate": LEARNING_RATE,
-        "adam_betas": [0.5, 0.9], "smoke": args.smoke, "device": str(device),
+        "validation_limit": max_val, "smoke": args.smoke, "device": str(device),
         "bf16": device.type == "cuda" and torch.cuda.is_bf16_supported(),
     }
-    generator = Generator().to(device)
-    discriminator = Discriminator().to(device)
-    spectral = MultiResolutionSTFT().to(device) if args.variant == "spectral" else None
-    optimizer_g = torch.optim.Adam(generator.parameters(), lr=LEARNING_RATE, betas=(0.5, 0.9))
-    optimizer_d = torch.optim.Adam(discriminator.parameters(), lr=LEARNING_RATE, betas=(0.5, 0.9))
+    generator = make_generator(args.variant).to(device)
+    discriminator = None
+    optimizer_d = None
+    spectral = None
+    if attention_model:
+        config.update(
+            learning_rate=ATTENTION_LEARNING_RATE, adam_betas=[0.9, 0.999],
+            weight_decay=0.01, waveform_weight=WAVEFORM_WEIGHT, architecture_version=1,
+        )
+        optimizer_g = torch.optim.AdamW(
+            generator.parameters(), lr=ATTENTION_LEARNING_RATE, weight_decay=config["weight_decay"]
+        )
+    else:
+        config.update(l1_weight=L1_WEIGHT, learning_rate=LEARNING_RATE, adam_betas=[0.5, 0.9])
+        discriminator = Discriminator().to(device)
+        spectral = MultiResolutionSTFT().to(device) if args.variant == "spectral" else None
+        optimizer_g = torch.optim.Adam(generator.parameters(), lr=LEARNING_RATE, betas=(0.5, 0.9))
+        optimizer_d = torch.optim.Adam(discriminator.parameters(), lr=LEARNING_RATE, betas=(0.5, 0.9))
     args.run_dir.mkdir(parents=True, exist_ok=True)
     last_path = args.run_dir / "last.pt"
     best_path = args.run_dir / "best.pt"
@@ -147,9 +204,10 @@ def run(args):
         if state["variant"] != args.variant or state["config"] != config:
             raise ValueError("Run directory has a different configuration. Choose an unused --run-dir.")
         generator.load_state_dict(state["generator"])
-        discriminator.load_state_dict(state["discriminator"])
+        if discriminator is not None:
+            discriminator.load_state_dict(state["discriminator"])
+            optimizer_d.load_state_dict(state["optimizer_d"])
         optimizer_g.load_state_dict(state["optimizer_g"])
-        optimizer_d.load_state_dict(state["optimizer_d"])
         history = state["history"]
     if len(history) == config["epochs"]:
         print(f"{args.variant}: training already completed in {args.run_dir}")
@@ -164,9 +222,13 @@ def run(args):
         if device.type == "cuda":
             torch.cuda.reset_peak_memory_stats(device)
         print(f"Epoch {epoch}/{config['epochs']}", flush=True)
-        measurement = train_epoch(
-            generator, discriminator, optimizer_g, optimizer_d, spectral, Crops(train, epoch), config, device
-        )
+        crops = Crops(train, epoch)
+        if attention_model:
+            measurement = train_attention_epoch(generator, optimizer_g, crops, config, device)
+        else:
+            measurement = train_epoch(
+                generator, discriminator, optimizer_g, optimizer_d, spectral, crops, config, device
+            )
         if device.type == "cuda":
             measurement["peak_cuda_mib"] = torch.cuda.max_memory_allocated(device) / 1024 ** 2
         rows = score_pairs(val, indices, {args.variant: generator.eval()}, device)
@@ -188,10 +250,10 @@ def run(args):
         if validation["stoi"] > best:
             atomic_save(state, best_path)
             best = validation["stoi"]
-        atomic_save({
-            **state, "discriminator": discriminator.state_dict(),
-            "optimizer_g": optimizer_g.state_dict(), "optimizer_d": optimizer_d.state_dict(),
-        }, last_path)
+        resume_state = {**state, "optimizer_g": optimizer_g.state_dict()}
+        if discriminator is not None:
+            resume_state.update(discriminator=discriminator.state_dict(), optimizer_d=optimizer_d.state_dict())
+        atomic_save(resume_state, last_path)
         (args.run_dir / "history.json").write_text(
             json.dumps({"config": config, "noisy_validation": noisy_summary, "epochs": history}, indent=2) + "\n",
             encoding="utf-8",
@@ -205,7 +267,7 @@ def run(args):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("variant", choices=("baseline", "spectral"))
+    parser.add_argument("variant", choices=GAN_MODELS + ATTENTION_MODELS)
     parser.add_argument("--data-dir", type=Path, default=Path("data"))
     parser.add_argument("--run-dir", type=Path, required=True)
     parser.add_argument("--device", choices=("auto", "cuda", "cpu"), default="auto")

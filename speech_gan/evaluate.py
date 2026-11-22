@@ -13,6 +13,13 @@ from .data import Pairs, REVISION
 from .metrics import enhance, score_pairs, summarize
 from .train import load_generator, resolve_device
 
+COMPARISONS = (
+    ("baseline", "noisy"), ("spectral", "noisy"), ("spectral", "baseline"),
+    ("transformer", "noisy"), ("transformer", "baseline"), ("transformer", "spectral"),
+    ("conformer", "noisy"), ("conformer", "baseline"), ("conformer", "spectral"),
+    ("conformer", "transformer"),
+)
+
 
 def paired_delta(rows, first, second, metric):
     by_method = {
@@ -34,17 +41,23 @@ def run(args):
     device = resolve_device(args.device)
     models = {"noisy": None}
     checkpoints = {}
-    for variant, path in (("baseline", args.baseline), ("spectral", args.spectral)):
+    for variant in ("baseline", "spectral", "transformer", "conformer"):
+        path = getattr(args, variant)
         if path is None:
             continue
         model, state = load_generator(path, device)
         if state["variant"] != variant or state["config"]["dataset_revision"] != REVISION:
             raise ValueError(f"{path}: checkpoint variant or dataset revision mismatch")
         models[variant], checkpoints[variant] = model, state
-    if args.split == "test" and (args.spectral is None or checkpoints["baseline"]["config"]["smoke"]):
-        raise ValueError("Official test evaluation requires both non-smoke checkpoints")
-    if args.spectral and checkpoints["baseline"]["config"] != checkpoints["spectral"]["config"]:
-        raise ValueError("The two runs must have the same training configuration")
+    if args.split == "test":
+        if "spectral" not in checkpoints or any(state["config"]["smoke"] for state in checkpoints.values()):
+            raise ValueError("Official test evaluation requires both GAN checkpoints and excludes smoke runs")
+        if ("transformer" in checkpoints) != ("conformer" in checkpoints):
+            raise ValueError("Supply both attention checkpoints for official test evaluation")
+    for baseline, modified in (("baseline", "spectral"), ("transformer", "conformer")):
+        if baseline in checkpoints and modified in checkpoints:
+            if checkpoints[baseline]["config"] != checkpoints[modified]["config"]:
+                raise ValueError(f"{baseline} and {modified} must have the same training configuration")
 
     pairs = Pairs(args.data_dir, args.split)
     speakers = sorted({row["speaker"] for row in pairs.records})
@@ -74,7 +87,7 @@ def run(args):
             f"{a}_minus_{b}": {
                 metric: paired_delta(rows, a, b, metric) for metric in ("stoi", "si_sdr_db")
             }
-            for a, b in (("baseline", "noisy"), ("spectral", "noisy"), ("spectral", "baseline"))
+            for a, b in COMPARISONS
             if a in models and b in models
         },
     }
@@ -92,6 +105,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--baseline", type=Path, required=True)
     parser.add_argument("--spectral", type=Path)
+    parser.add_argument("--transformer", type=Path)
+    parser.add_argument("--conformer", type=Path)
     parser.add_argument("--data-dir", type=Path, default=Path("data"))
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--split", choices=("validation", "test"), required=True)

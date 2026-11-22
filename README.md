@@ -4,6 +4,8 @@ An offline voice-note denoiser and a controlled comparison of two conditional
 waveform GANs. Both use the same 1D U-Net generator and patch discriminator.
 The baseline uses adversarial and waveform L1 losses. The second model also
 uses multi-resolution STFT loss.
+The project also compares a compact Transformer with a matched Conformer
+that adds local temporal convolution to the attention blocks.
 
 See [the project report](REPORT.md) for the architecture comparison, proposed
 modification, benchmark protocol, and results.
@@ -66,6 +68,22 @@ checkpoint, most recent resumable checkpoint, and per-epoch history. Rerun a
 training command with the same options to resume from the last complete epoch.
 Evaluation writes a summary and per-utterance measurements.
 
+## Train and compare the Conformer
+
+Train the Transformer and Conformer with the same settings and compare them
+alongside the two published GAN checkpoints. Each attention model uses the
+same complex-mask decoder and supervised loss.
+
+```powershell
+& $projectPython -m speech_gan.train transformer --device cuda --run-dir runs/transformer
+& $projectPython -m speech_gan.train conformer --device cuda --run-dir runs/conformer
+& $projectPython -m speech_gan.evaluate --baseline artifacts/baseline.pt --spectral artifacts/spectral.pt --transformer runs/transformer/best.pt --conformer runs/conformer/best.pt --split test --device cuda --output-dir runs/conformer-comparison
+```
+
+Add `--smoke --batch-size 4` and use separate run directories for a four-batch
+check on either model. The official test command expects both complete
+attention checkpoints.
+
 ## Run the offline demo
 
 The trained generator checkpoints in `artifacts/` let you run the demo
@@ -77,9 +95,10 @@ without downloading VoiceBank–DEMAND.
 
 Open the localhost URL printed by Gradio. Upload or record a noisy voice note
 up to 60 seconds long. Add the matching clean recording if you have it, then
-select **Denoise and compare**. The four audio players keep a common gain and
-the plots share the same time and frequency limits and dB scale.
-Use `--baseline` and `--spectral` to select checkpoints from a new run.
+select **Denoise and compare**. The players keep a common gain and the plots
+share the same time and frequency limits and dB scale. The demo includes the
+Conformer when `artifacts/conformer.pt` is present. Use `--baseline`,
+`--spectral`, or `--conformer` to select a checkpoint from a new run.
 
 ## Data credit
 
