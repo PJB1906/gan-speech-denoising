@@ -7,6 +7,8 @@ measures intelligibility, signal distortion, and inference time.
 On the official test, the MR-STFT model scored slightly below the baseline
 on both STOI and SI-SDR. Both models improved SI-SDR over noisy input while
 lowering STOI.
+The follow-up Conformer reached 0.93742 STOI and 18.25 dB SI-SDR, the highest
+scores of the models trained in this project.
 
 ## Phase 1 · Architecture comparison
 
@@ -143,11 +145,45 @@ The official set was previously scored for the GAN study, so the comparison
 with the new models is a follow-up on a known benchmark. Checkpoint selection
 for the attention models uses only validation scores.
 
+### Follow-up test results
+
+All four trained models were scored together on 824 utterances from the same
+two official test speakers. The STOI and SI-SDR scores for the noisy input
+and both GANs reproduced the original benchmark. The table uses latency
+measured in the follow-up session.
+
+| Method | Mean STOI ↑ | Mean SI-SDR (dB) ↑ | Median GPU inference (ms) ↓ |
+| --- | ---: | ---: | ---: |
+| Noisy input | 0.92101 | 8.45 | — |
+| Baseline GAN | 0.91466 | 14.82 | 1.83 |
+| MR-STFT GAN | 0.91253 | 14.57 | 1.69 |
+| Transformer | 0.93721 | 18.18 | 5.18 |
+| Conformer | 0.93742 | 18.25 | 6.17 |
+
+The Conformer gained 0.02489 STOI and 3.68 dB SI-SDR over the MR-STFT GAN. It
+also gained 0.01641 STOI over the noisy input. Against the matched Transformer,
+it gained 0.00021 STOI and 0.07 dB SI-SDR, with about 1 ms more median inference
+time. The larger gains over the GANs compare the full recipes, including
+differences in architecture and training objective. The matched comparison
+shows a small gain from the convolutional variant in a single seeded run.
+[Evaluation summary](artifacts/conformer-comparison-summary.json),
+[per-utterance results](artifacts/conformer-comparison-utterances.csv).
+
+| Training run | Parameters | Updates | Training time | Best validation STOI |
+| --- | ---: | ---: | ---: | ---: |
+| Transformer | 268,998 | 4,984 | 139.99 s | 0.88457 (epoch 7) |
+| Conformer | 309,798 | 4,984 | 168.87 s | 0.88779 (epoch 7) |
+
+The additional convolution increases model capacity. Each run used the same
+RTX 4050, BF16 training, and checkpoint-selection procedure. Training time
+excludes validation. [Transformer history](artifacts/transformer-training.json),
+[Conformer history](artifacts/conformer-training.json).
+
 ## Phase 4 · Offline voice-note demo
 
 The local Gradio interface accepts a recording or uploaded voice note up to
-60 seconds, converts it to mono at 16 kHz, and runs both generators. The noisy
-input, two estimates, and optional clean reference can be played individually.
+60 seconds, converts it to mono at 16 kHz, and runs both GANs and the Conformer.
+The noisy input, three estimates, and optional clean reference can be played individually.
 Spectrograms use 512-sample Hann windows, 128-sample hops, and a shared −80 to
 0 dB magnitude scale. Upload tests with the published checkpoints returned
 the expected audio players and spectrograms with and without a clean reference.

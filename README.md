@@ -82,7 +82,9 @@ same complex-mask decoder and supervised loss.
 
 Add `--smoke --batch-size 4` and use separate run directories for a four-batch
 check on either model. The official test command expects both complete
-attention checkpoints.
+attention checkpoints. To reproduce the comparison with the supplied
+checkpoints, use `artifacts/transformer.pt` and `artifacts/conformer.pt`.
+[Follow-up benchmark results](REPORT.md#follow-up-test-results).
 
 ## Run the offline demo
 

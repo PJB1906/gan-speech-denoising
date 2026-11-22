@@ -1,0 +1,164 @@
+{
+  "split": "test",
+  "speakers": [
+    "p232",
+    "p257"
+  ],
+  "dataset_revision": "4497db342d7312978c45690591fda86117831940",
+  "device": "NVIDIA GeForce RTX 4050 Laptop GPU",
+  "torch_version": "2.11.0+cu128",
+  "inference_timing": "FP32 forward and clamp, one warm-up forward per clip and model, alternating model order",
+  "checkpoint_epochs": {
+    "baseline": 4,
+    "spectral": 5,
+    "transformer": 7,
+    "conformer": 7
+  },
+  "methods": {
+    "noisy": {
+      "clips": 824,
+      "stoi": 0.9210125620780191,
+      "stoi_count": 824,
+      "si_sdr_db": 8.445536125381492,
+      "si_sdr_db_count": 824
+    },
+    "baseline": {
+      "clips": 824,
+      "stoi": 0.914656647968511,
+      "stoi_count": 824,
+      "si_sdr_db": 14.815015697034344,
+      "si_sdr_db_count": 824,
+      "median_inference_ms": 1.8267499981448054,
+      "real_time_factor": 0.0008280257354579306
+    },
+    "spectral": {
+      "clips": 824,
+      "stoi": 0.9125301959225673,
+      "stoi_count": 824,
+      "si_sdr_db": 14.570285695243339,
+      "si_sdr_db_count": 824,
+      "median_inference_ms": 1.6882000054465607,
+      "real_time_factor": 0.0008166098362091229
+    },
+    "transformer": {
+      "clips": 824,
+      "stoi": 0.9372070989117811,
+      "stoi_count": 824,
+      "si_sdr_db": 18.18392437119622,
+      "si_sdr_db_count": 824,
+      "median_inference_ms": 5.176149992621504,
+      "real_time_factor": 0.0021555778175428378
+    },
+    "conformer": {
+      "clips": 824,
+      "stoi": 0.9374177937485793,
+      "stoi_count": 824,
+      "si_sdr_db": 18.25253999109002,
+      "si_sdr_db_count": 824,
+      "median_inference_ms": 6.171300003188662,
+      "real_time_factor": 0.002530078298559257
+    }
+  },
+  "paired_deltas": {
+    "baseline_minus_noisy": {
+      "stoi": {
+        "count": 824,
+        "mean": -0.006355914109508332
+      },
+      "si_sdr_db": {
+        "count": 824,
+        "mean": 6.369479571652851
+      }
+    },
+    "spectral_minus_noisy": {
+      "stoi": {
+        "count": 824,
+        "mean": -0.008482366155451834
+      },
+      "si_sdr_db": {
+        "count": 824,
+        "mean": 6.124749569861845
+      }
+    },
+    "spectral_minus_baseline": {
+      "stoi": {
+        "count": 824,
+        "mean": -0.002126452045943501
+      },
+      "si_sdr_db": {
+        "count": 824,
+        "mean": -0.24473000179100582
+      }
+    },
+    "transformer_minus_noisy": {
+      "stoi": {
+        "count": 824,
+        "mean": 0.016194536833761965
+      },
+      "si_sdr_db": {
+        "count": 824,
+        "mean": 9.738388245814726
+      }
+    },
+    "transformer_minus_baseline": {
+      "stoi": {
+        "count": 824,
+        "mean": 0.022550450943270295
+      },
+      "si_sdr_db": {
+        "count": 824,
+        "mean": 3.368908674161874
+      }
+    },
+    "transformer_minus_spectral": {
+      "stoi": {
+        "count": 824,
+        "mean": 0.024676902989213795
+      },
+      "si_sdr_db": {
+        "count": 824,
+        "mean": 3.61363867595288
+      }
+    },
+    "conformer_minus_noisy": {
+      "stoi": {
+        "count": 824,
+        "mean": 0.016405231670560023
+      },
+      "si_sdr_db": {
+        "count": 824,
+        "mean": 9.807003865708527
+      }
+    },
+    "conformer_minus_baseline": {
+      "stoi": {
+        "count": 824,
+        "mean": 0.022761145780068354
+      },
+      "si_sdr_db": {
+        "count": 824,
+        "mean": 3.4375242940556765
+      }
+    },
+    "conformer_minus_spectral": {
+      "stoi": {
+        "count": 824,
+        "mean": 0.024887597826011854
+      },
+      "si_sdr_db": {
+        "count": 824,
+        "mean": 3.6822542958466826
+      }
+    },
+    "conformer_minus_transformer": {
+      "stoi": {
+        "count": 824,
+        "mean": 0.00021069483679805824
+      },
+      "si_sdr_db": {
+        "count": 824,
+        "mean": 0.06861561989380219
+      }
+    }
+  }
+}
