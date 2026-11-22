@@ -7,3 +7,6 @@ pystoi==0.4.1
 soundfile==0.13.1
 matplotlib==3.10.7
 gradio==6.32.0
+av==17.1.0
+ctranslate2==4.9.1
+faster-whisper==1.2.1

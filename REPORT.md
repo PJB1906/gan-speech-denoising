@@ -181,10 +181,17 @@ excludes validation. [Transformer history](artifacts/transformer-training.json),
 
 ## Phase 4 · Offline voice-note demo
 
-The local Gradio interface accepts a recording or uploaded voice note up to
-60 seconds, converts it to mono at 16 kHz, and runs both GANs and the Conformer.
-The noisy input, three estimates, and optional clean reference can be played individually.
+The local Gradio interface accepts a microphone recording or audio upload,
+converts it to mono at 16 kHz, and runs both GANs and the Conformer in
+overlapping windows. The noisy input, three estimates, and optional clean
+reference can be played individually. For long recordings, the interface
+shows up to 30 seconds of each waveform and spectrogram while providing
+separate full-length FLAC players and downloads.
 Spectrograms use 512-sample Hann windows, 128-sample hops, and a shared −80 to
-0 dB magnitude scale. Upload tests with the published checkpoints returned
-the expected audio players and spectrograms with and without a clean reference.
+0 dB magnitude scale. Local Whisper Base transcription runs on the Conformer
+estimate and displays recording-wide timestamps and a downloadable text file.
+The end-to-end demo test used a 113.66-second recording and confirmed audio
+playback, a matching full-length download and speech transcribed past the
+one-minute mark. A separate synthetic 8-hour 31-minute test verified
+length-preserving streaming I/O and bounded previews.
 Setup, training, and demo commands are in [README.md](README.md).

@@ -1,39 +1,45 @@
 """Offline browser demo for comparing speech enhancement models."""
 
 import argparse
-import math
+import html
 import os
+import shutil
 import tempfile
 from pathlib import Path
+from urllib.parse import quote
 
 os.environ.setdefault("GRADIO_ANALYTICS_ENABLED", "False")
 
+import av
 import gradio as gr
 import numpy as np
-import soundfile as sf
 from matplotlib.figure import Figure
-from scipy.signal import resample_poly, stft
+from scipy.signal import stft
 
 from . import SAMPLE_RATE
 from .data import write_wav
-from .metrics import enhance
+from .recording import PREVIEW_SECONDS, render_audio, timecode
 from .train import load_generator, resolve_device
+from .transcription import MODEL_PATH, load_transcriber, transcribe_audio
 
-MAX_DURATION = 60
 
-
-def load_note(path):
-    with sf.SoundFile(path) as source:
-        if not 0 < source.frames <= MAX_DURATION * source.samplerate:
-            raise ValueError("Choose a nonempty WAV, FLAC, OGG or MP3 up to 60 seconds long.")
-        rate = source.samplerate
-        audio = source.read(dtype="float32", always_2d=True).mean(axis=1)
-    if not np.isfinite(audio).all():
-        raise ValueError("The audio contains non-finite samples.")
-    if rate != SAMPLE_RATE:
-        divisor = math.gcd(rate, SAMPLE_RATE)
-        audio = resample_poly(audio, SAMPLE_RATE // divisor, rate // divisor)
-    return audio.clip(-1, 1)
+def full_recordings(paths, duration):
+    """Serve long files through native players that fetch audio as needed."""
+    if duration <= PREVIEW_SECONDS:
+        return ""
+    players = []
+    for label, path in paths.items():
+        url = "/gradio_api/file=" + quote(path.resolve().as_posix(), safe="/:")
+        name = html.escape(label)
+        players.append(
+            f'<div><strong>{name}</strong><br><audio controls preload="none" '
+            f'src="{url}" aria-label="{name}"></audio><br>'
+            f'<a href="{url}" download="{path.name}">Download {name}</a></div>'
+        )
+    return (
+        f"<h3>Full recordings</h3><p>The waveform and spectrogram previews show "
+        f"the first {PREVIEW_SECONDS} seconds.</p>" + "".join(players)
+    )
 
 
 def plot_spectrograms(clips):
@@ -64,7 +70,7 @@ def plot_spectrograms(clips):
     return figure
 
 
-def create_demo(baseline, spectral, device, temp_root, conformer=None):
+def create_demo(baseline, spectral, device, temp_root, conformer=None, whisper_model=MODEL_PATH, whisper_device=None):
     models = {}
     variants = (
         ("baseline", "Baseline GAN", baseline), ("spectral", "MR-STFT GAN", spectral),
@@ -77,42 +83,88 @@ def create_demo(baseline, spectral, device, temp_root, conformer=None):
         if checkpoint["variant"] != variant:
             raise ValueError(f"{path}: expected a {variant} checkpoint")
         models[label] = model
+    transcript_source = "Conformer" if "Conformer" in models else "MR-STFT GAN"
+    transcriber = None
 
-    def compare(noisy_path, clean_path):
-        if not noisy_path:
-            raise gr.Error("Upload or record a noisy voice note first.")
-        try:
-            noisy = load_note(noisy_path)
-            clean = load_note(clean_path) if clean_path else None
-        except (ValueError, RuntimeError) as error:
-            raise gr.Error(str(error)) from error
-        clips = [("Noisy", noisy)]
-        for label, model in models.items():
-            enhanced, _ = enhance(model, noisy, device)
-            clips.append((label, enhanced))
-        clips.append(("Clean reference", clean))
+    def compare(noisy_path, clean_path, recording_path=None, progress=gr.Progress()):
+        nonlocal transcriber
+        source = noisy_path or recording_path
+        if not source:
+            raise gr.Error("Upload an audio file or record a voice note first.")
         destination = Path(tempfile.mkdtemp(dir=temp_root))
-        audio_paths = []
-        for index, (_, audio) in enumerate(clips):
-            path = destination / f"{index}.wav"
-            if audio is not None:
-                write_wav(path, audio)
-            audio_paths.append(str(path) if audio is not None else None)
-        return *audio_paths, plot_spectrograms(clips)
 
-    with gr.Blocks(title="Voice Note Denoiser", delete_cache=(3600, 3600)) as app:
+        def update(stage, beginning, span):
+            def report(done, total):
+                ratio = min(1, done / total) if total else 0
+                extent = f" / {timecode(total)}" if total else ""
+                progress(beginning + span * ratio, desc=f"{stage} {timecode(done)}{extent}")
+            return report
+
+        try:
+            paths, previews, duration = render_audio(
+                source, "Noisy", models, device, destination, update("Enhancing audio", 0, 0.5)
+            )
+            if clean_path:
+                clean_files, clean_preview, clean_duration = render_audio(
+                    clean_path, "Clean reference", {}, device, destination, update("Decoding reference", 0.5, 0.05)
+                )
+                paths.update(clean_files)
+                previews.update(clean_preview)
+                duration = max(duration, clean_duration)
+        except (av.error.FFmpegError, OSError, ValueError, RuntimeError) as error:
+            shutil.rmtree(destination, ignore_errors=True)
+            raise gr.Error(f"Could not process the recording. {error}") from error
+
+        clips = [(label, previews.get(label)) for label in ["Noisy", *models, "Clean reference"]]
+        audio_paths = []
+        for index, (_, preview) in enumerate(clips):
+            output = destination / f"preview-{index}.wav"
+            if preview is not None:
+                write_wav(output, preview)
+            audio_paths.append(str(output) if preview is not None else None)
+        outputs = (*audio_paths, plot_spectrograms(clips), full_recordings(paths, duration))
+        progress(0.55, desc="Loading Whisper")
+        yield *outputs, "Transcribing the enhanced audio…", None
+        try:
+            if transcriber is None:
+                transcriber = load_transcriber(whisper_model, whisper_device or device.type)
+            transcript = transcribe_audio(
+                transcriber, paths[transcript_source], update("Transcribing audio", 0.55, 0.45)
+            )
+            if transcript:
+                transcript_path = destination / "transcript.txt"
+                transcript_path.write_text(transcript + "\n", encoding="utf-8")
+                yield *outputs, transcript, str(transcript_path)
+            else:
+                yield *outputs, "No speech detected.", None
+        except (OSError, ValueError, RuntimeError) as error:
+            gr.Warning("Audio processing finished. Transcription could not be completed.")
+            yield *outputs, f"Transcription error: {error}", None
+
+    with gr.Blocks(title="Voice Note Denoiser") as app:
         gr.Markdown("# Voice Note Denoiser")
         with gr.Row():
-            noisy = gr.Audio(label="Noisy voice note", type="filepath", sources=["upload", "microphone"])
-            clean = gr.Audio(label="Clean reference (optional)", type="filepath", sources=["upload"])
-        button = gr.Button("Denoise and compare", variant="primary")
+            noisy = gr.File(label="Audio recording", type="filepath", file_types=["audio"])
+            clean = gr.File(label="Clean reference (optional)", type="filepath", file_types=["audio"])
+        with gr.Accordion("Record with microphone", open=False):
+            recording = gr.Audio(label="Microphone", type="filepath", sources=["microphone"])
+        button = gr.Button("Denoise and transcribe", variant="primary")
         with gr.Row():
             noisy_result = gr.Audio(label="Noisy", interactive=False)
             clean_result = gr.Audio(label="Clean reference", interactive=False)
         with gr.Row():
             denoised_results = [gr.Audio(label=label, interactive=False) for label in models]
+        complete_audio = gr.HTML()
+        transcript = gr.Textbox(
+            label=f"Timestamped transcript · {transcript_source}", lines=12, max_lines=22,
+            buttons=["copy"], interactive=False, autoscroll=False,
+        )
+        transcript_file = gr.File(label="Download transcript", interactive=False)
         plot = gr.Plot(label="Spectrograms")
-        button.click(compare, [noisy, clean], [noisy_result, *denoised_results, clean_result, plot])
+        button.click(
+            compare, [noisy, clean, recording],
+            [noisy_result, *denoised_results, clean_result, plot, complete_audio, transcript, transcript_file],
+        )
     return app
 
 
@@ -124,11 +176,23 @@ def main():
     parser.add_argument("--conformer", type=Path, default=bundled_conformer if bundled_conformer.is_file() else None)
     parser.add_argument("--port", type=int)
     parser.add_argument("--device", choices=("auto", "cuda", "cpu"), default="auto")
+    parser.add_argument("--whisper-model", type=Path, default=MODEL_PATH)
+    parser.add_argument("--whisper-device", choices=("cuda", "cpu"), help="Defaults to the denoising device")
     args = parser.parse_args()
     device = resolve_device(args.device)
-    with tempfile.TemporaryDirectory(prefix="speech-gan-") as temp_root:
-        app = create_demo(args.baseline, args.spectral, device, temp_root, args.conformer)
-        app.launch(server_name="127.0.0.1", server_port=args.port, share=False, allowed_paths=[temp_root])
+    with tempfile.TemporaryDirectory(prefix="speech-gan-") as temporary:
+        temp_root = Path(temporary)
+        output_dir = temp_root / "recordings"
+        output_dir.mkdir()
+        os.environ.setdefault("GRADIO_TEMP_DIR", str(temp_root / "gradio"))
+        app = create_demo(
+            args.baseline, args.spectral, device, output_dir,
+            args.conformer, args.whisper_model, args.whisper_device,
+        )
+        app.launch(
+            server_name="127.0.0.1", server_port=args.port, share=False,
+            allowed_paths=[str(output_dir)], max_file_size=None,
+        )
 
 
 if __name__ == "__main__":

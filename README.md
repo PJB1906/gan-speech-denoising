@@ -27,8 +27,8 @@ $projectPython = ".\.venv\Scripts\python.exe"
 
 For CPU inference or a CPU smoke test, install `torch==2.11.0+cpu` using
 `https://download.pytorch.org/whl/cpu` as the extra index in the PyTorch command.
-The tools and demo work offline after installation. FFmpeg can help Gradio
-handle uploads that need format conversion.
+The tools and demo work offline after installation and the one-time Whisper
+model download below. PyAV provides audio decoding and resampling.
 
 ## Verify and prepare the data
 
@@ -92,15 +92,28 @@ The trained generator checkpoints in `artifacts/` let you run the demo
 without downloading VoiceBank–DEMAND.
 
 ```powershell
-& $projectPython -m speech_gan.demo --device cpu
+& $projectPython -m speech_gan.transcription --download
+& $projectPython -m speech_gan.demo --device auto
 ```
 
-Open the localhost URL printed by Gradio. Upload or record a noisy voice note
-up to 60 seconds long. Add the matching clean recording if you have it, then
-select **Denoise and compare**. The players keep a common gain and the plots
-share the same time and frequency limits and dB scale. The demo includes the
-Conformer when `artifacts/conformer.pt` is present. Use `--baseline`,
-`--spectral`, or `--conformer` to select a checkpoint from a new run.
+Open the localhost URL printed by Gradio. Upload an audio file or record
+with the microphone. You can also upload a clean reference. Select
+**Denoise and transcribe** to compare the enhancements and see a timestamped
+transcript of the Conformer output. The demo uses the MR-STFT GAN output
+for transcription when a Conformer checkpoint is unavailable.
+
+Audio decoding, enhancement and transcription use bounded windows. The
+waveform and spectrogram previews show up to the first 30 seconds.
+Longer recordings also have full-length FLAC players and download links.
+Save the transcript using the text download. Results are held in temporary
+storage while the local app runs, so download the files you want to keep
+before closing it.
+
+Recordings and transcripts stay on the machine. The download command
+fetches the pinned multilingual Whisper Base weights. Use
+`--whisper-device cpu` if CUDA transcription is unavailable. Model options
+`--baseline`, `--spectral`, and `--conformer` load alternate denoising checkpoints.
+[Whisper inference engine](https://github.com/SYSTRAN/faster-whisper).
 
 ## Data credit
 

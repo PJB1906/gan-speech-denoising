@@ -2,6 +2,7 @@
 /data/
 /runs/
 /examples/
+/models/
 /GEnAI_CAC.docx
 /Speech_GAN_Codex_Handoff.md
 __pycache__/
