@@ -115,6 +115,24 @@ fetches the pinned multilingual Whisper Base weights. Use
 `--baseline`, `--spectral`, and `--conformer` load alternate denoising checkpoints.
 [Whisper inference engine](https://github.com/SYSTRAN/faster-whisper).
 
+## Host on Streamlit Community Cloud
+
+Deploy the `main` branch with `streamlit_app/app.py` as the entry point
+and Python 3.12. In Advanced settings, set the app's Secrets to
+`VOICE_NOTE_PASSWORD = "your-access-password"`. Share this password
+separately from the app URL.
+
+The hosted app compares all three denoisers with audio previews, waveforms,
+and spectrograms from any part of the recording. It also provides full-length
+FLAC playback and downloads, and a timestamped Conformer transcript. It uses
+the bundled GAN and Conformer checkpoints and downloads the pinned Whisper
+weights on first use.
+
+Community Cloud can sleep between visits. Available memory and CPU
+determine how large a recording the hosted app can process. Use the offline
+demo for sensitive recordings or recordings that exceed the cloud resources.
+[Streamlit Community Cloud deployment guide](https://docs.streamlit.io/deploy/streamlit-community-cloud/deploy-your-app).
+
 ## Data credit
 
 The experiment uses Cassia Valentini-Botinhao’s noisy speech database via

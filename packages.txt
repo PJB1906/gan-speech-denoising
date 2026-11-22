@@ -1,0 +1,3 @@
+curl
+libgomp1
+libsndfile1
