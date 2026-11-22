@@ -8,6 +8,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
+from . import SAMPLE_RATE
 from .data import Pairs, REVISION
 from .metrics import enhance, score_pairs, summarize
 from .train import load_generator, resolve_device
@@ -56,14 +57,15 @@ def run(args):
     for model in models.values():
         if model is not None:
             for _ in range(5):
-                enhance(model, np.zeros(16_000, dtype=np.float32), device)
-    rows = score_pairs(pairs, range(len(pairs)), models, device)
+                enhance(model, np.zeros(SAMPLE_RATE, dtype=np.float32), device)
+    rows = score_pairs(pairs, range(len(pairs)), models, device, warmup_each=True)
     summary = {
         "split": args.split,
         "speakers": speakers,
         "dataset_revision": REVISION,
         "device": torch.cuda.get_device_name(device) if device.type == "cuda" else "CPU",
         "torch_version": str(torch.__version__),
+        "inference_timing": "FP32 forward and clamp, one warm-up forward per clip and model, alternating model order",
         "checkpoint_epochs": {label: state["epoch"] for label, state in checkpoints.items()},
         "methods": {
             name: summarize([row for row in rows if row["method"] == name]) for name in models

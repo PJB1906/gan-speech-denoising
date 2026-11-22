@@ -64,13 +64,19 @@ def summarize(rows):
     return summary
 
 
-def score_pairs(pairs, indices, models, device):
+def score_pairs(pairs, indices, models, device, *, warmup_each=False):
     rows = []
-    for index in indices:
+    generators = [(label, model) for label, model in models.items() if model is not None]
+    for position, index in enumerate(indices):
         noisy, clean = pairs.read(index)
         record = pairs.records[index]
-        for label, model in models.items():
-            estimate, elapsed = enhance(model, noisy, device) if model is not None else (noisy, None)
+        ordered = generators if position % 2 == 0 else generators[::-1]
+        if warmup_each:
+            for _, model in ordered:
+                enhance(model, noisy, device)
+        estimates = {label: enhance(model, noisy, device) for label, model in ordered}
+        for label in models:
+            estimate, elapsed = estimates.get(label, (noisy, None))
             stoi_score, sisdr = measure(clean, estimate)
             rows.append({
                 "id": record["id"], "speaker": record["speaker"], "method": label,

@@ -1,0 +1,74 @@
+{
+  "split": "test",
+  "speakers": [
+    "p232",
+    "p257"
+  ],
+  "dataset_revision": "4497db342d7312978c45690591fda86117831940",
+  "device": "NVIDIA GeForce RTX 4050 Laptop GPU",
+  "torch_version": "2.11.0+cu128",
+  "inference_timing": "FP32 forward and clamp, one warm-up forward per clip and model, alternating model order",
+  "checkpoint_epochs": {
+    "baseline": 4,
+    "spectral": 5
+  },
+  "methods": {
+    "noisy": {
+      "clips": 824,
+      "stoi": 0.9210125620780191,
+      "stoi_count": 824,
+      "si_sdr_db": 8.445536125381492,
+      "si_sdr_db_count": 824
+    },
+    "baseline": {
+      "clips": 824,
+      "stoi": 0.914656647968511,
+      "stoi_count": 824,
+      "si_sdr_db": 14.815015697034344,
+      "si_sdr_db_count": 824,
+      "median_inference_ms": 2.5747000036062673,
+      "real_time_factor": 0.0014093048548347396
+    },
+    "spectral": {
+      "clips": 824,
+      "stoi": 0.9125301959225673,
+      "stoi_count": 824,
+      "si_sdr_db": 14.570285695243339,
+      "si_sdr_db_count": 824,
+      "median_inference_ms": 2.582000000984408,
+      "real_time_factor": 0.0014105564768775666
+    }
+  },
+  "paired_deltas": {
+    "baseline_minus_noisy": {
+      "stoi": {
+        "count": 824,
+        "mean": -0.006355914109508332
+      },
+      "si_sdr_db": {
+        "count": 824,
+        "mean": 6.369479571652851
+      }
+    },
+    "spectral_minus_noisy": {
+      "stoi": {
+        "count": 824,
+        "mean": -0.008482366155451834
+      },
+      "si_sdr_db": {
+        "count": 824,
+        "mean": 6.124749569861845
+      }
+    },
+    "spectral_minus_baseline": {
+      "stoi": {
+        "count": 824,
+        "mean": -0.002126452045943501
+      },
+      "si_sdr_db": {
+        "count": 824,
+        "mean": -0.24473000179100582
+      }
+    }
+  }
+}

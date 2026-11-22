@@ -4,6 +4,9 @@ The project tests whether multi-resolution spectrogram loss helps a small GAN
 remove background noise while preserving the speech in short voice notes.
 The two models share an architecture and training budget. The comparison
 measures intelligibility, signal distortion, and inference time.
+On the official test, the MR-STFT model scored slightly below the baseline
+on both STOI and SI-SDR. Both models improved SI-SDR over noisy input while
+lowering STOI.
 
 ## Phase 1 · Architecture comparison
 
@@ -69,9 +72,11 @@ means over the same test clips for each method.
 
 STOI estimates intelligibility relative to clean speech. SI-SDR measures
 distortion after aligning the estimate and reference in scale. Inference timing
-measures the warmed, single-utterance FP32 generator with synchronized GPU
-execution. It excludes decoding, metrics, file writing and the Gradio interface.
-The real-time factor divides total inference seconds by total audio seconds.
+measures single-utterance FP32 generation and clipping with synchronized GPU
+execution. The timing pass warms up both models for each utterance and
+alternates their run order. Audio decoding, transfers, metric computation and
+the Gradio interface fall outside the timed region. The real-time factor
+divides total inference seconds by total audio seconds.
 [STOI implementation and references](https://github.com/mpariente/pystoi),
 [SI-SDR](https://arxiv.org/abs/1811.02508).
 
@@ -81,9 +86,42 @@ Both variants passed four-batch smoke tests on CPU and on the RTX 4050.
 On all 1,608 validation utterances, the selected baseline (epoch 4) scored
 0.85581 STOI and 9.93 dB SI-SDR. The noisy input scored 0.85685 STOI and
 6.11 dB SI-SDR. The baseline gained 3.82 dB in SI-SDR while losing 0.00103
-in STOI. The spectral-loss run uses the same training budget to test whether
-it can keep the distortion gain and improve intelligibility.
+in STOI. On the 256-utterance checkpoint-selection sample, the best baseline
+scored 0.85630 STOI and the best MR-STFT model (epoch 5) scored 0.85923.
+The noisy input scored 0.85724 on that sample.
 [Baseline validation measurements](artifacts/baseline-validation.json).
+
+### Official test
+
+| Method | Mean STOI ↑ | Mean SI-SDR (dB) ↑ | Median inference (ms) ↓ | Real-time factor ↓ |
+| --- | ---: | ---: | ---: | ---: |
+| Noisy input | 0.92101 | 8.45 | — | — |
+| Baseline GAN | 0.91466 | 14.82 | 2.575 | 0.001409 |
+| MR-STFT GAN | 0.91253 | 14.57 | 2.582 | 0.001411 |
+
+Across 824 test utterances, the baseline gained 6.37 dB in mean SI-SDR
+relative to noisy input and the MR-STFT GAN gained 6.12 dB. Mean STOI fell by
+0.00636 for the baseline and 0.00848 for the MR-STFT GAN. The MR-STFT
+model's advantage on the validation sample reversed on the official test.
+Adding the spectral loss reduced test STOI by 0.00213 and SI-SDR by 0.24 dB
+relative to the baseline. Inference latency was nearly identical.
+[Test summary](artifacts/test-summary.json), [Per-utterance scores](artifacts/test-utterances.csv).
+
+| Training run | Generator updates | Training time | Peak allocated CUDA memory |
+| --- | ---: | ---: | ---: |
+| Baseline | 4,984 | 141.75 s | 55.6 MiB |
+| MR-STFT GAN | 4,984 | 124.21 s | 148.6 MiB |
+
+Training used PyTorch 2.11.0 with CUDA 12.8 and BF16 autocast on the RTX 4050
+Laptop GPU. Times sum the training loops and exclude validation. Peak memory
+is PyTorch's CUDA allocation. Both runs lost validation STOI in late epochs,
+making the checkpoint-selection rule material to the comparison.
+[Baseline history](artifacts/baseline-training.json),
+[MR-STFT history](artifacts/spectral-training.json).
+
+The test covers two speakers and this experiment uses one initialization seed.
+STOI measures an intelligibility proxy on simulated mixtures. Word recognition
+on real voice notes remains unmeasured.
 
 ## Phase 4 · Offline voice-note demo
 
